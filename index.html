@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>客服台 · 失物招领与认领</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Sans+SC:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --paper:#F4EEE1;--paper2:#ECE3D1;--card:#FBF7EE;--ink:#1E2C28;--ink2:#48564F;--muted:#8A8270;
+    --terra:#C4482E;--terra-d:#A53A23;--teal:#1B6E62;--gold:#C28A33;--line:#D9CDB4;--line2:#C9BC9F;
+    --shadow:0 1px 2px rgba(30,44,40,.06),0 8px 28px -12px rgba(30,44,40,.22);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Noto Sans SC",sans-serif;color:var(--ink);background:var(--paper);
+    background-image:radial-gradient(120% 120% at 100% 0%,rgba(194,138,51,.10),transparent 55%),radial-gradient(120% 120% at 0% 100%,rgba(27,110,98,.10),transparent 55%);
+    line-height:1.6;min-height:100vh}
+  .wrap{max-width:920px;margin:0 auto;padding:0 16px 64px}
+  header{padding:26px 0 10px;text-align:center}
+  .brand{display:inline-flex;align-items:center;gap:10px;color:var(--teal);font-weight:700;letter-spacing:.12em;font-size:12px;text-transform:uppercase}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--terra)}
+  h1{font-family:"Noto Serif SC",serif;font-weight:900;font-size:clamp(28px,7vw,42px);line-height:1.1;margin:8px 0 6px}
+  .sub{color:var(--ink2);font-size:14px;max-width:520px;margin:0 auto}
+  nav{display:flex;gap:6px;background:var(--paper2);border:1px solid var(--line);border-radius:14px;padding:5px;margin:22px auto 26px;max-width:560px}
+  nav button{flex:1;border:none;background:transparent;font-family:inherit;font-size:13px;font-weight:700;color:var(--ink2);padding:10px 6px;border-radius:10px;cursor:pointer;transition:.18s}
+  nav button.on{background:var(--ink);color:var(--paper);box-shadow:var(--shadow)}
+  .panel{display:none}.panel.on{display:block;animation:fade .35s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .searchbar{display:flex;gap:8px;margin-bottom:18px}.searchbar input{flex:1}
+  input,select,textarea{width:100%;font-family:inherit;font-size:15px;color:var(--ink);background:var(--card);border:1.5px solid var(--line2);border-radius:11px;padding:12px 14px;transition:.15s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(27,110,98,.13)}
+  textarea{resize:vertical;min-height:78px}
+  label{display:block;font-size:12.5px;font-weight:700;color:var(--ink2);margin:0 0 6px 2px}
+  .field{margin-bottom:14px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:520px){.row{grid-template-columns:1fr}}
+  .btn{font-family:inherit;font-weight:700;font-size:14px;border:none;border-radius:11px;padding:12px 20px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .btn-primary{background:var(--terra);color:#fff;box-shadow:0 6px 18px -8px var(--terra)}.btn-primary:hover{background:var(--terra-d)}
+  .btn-ghost{background:var(--card);color:var(--ink);border:1.5px solid var(--line2)}.btn-ghost:hover{border-color:var(--ink2)}
+  .btn-teal{background:var(--teal);color:#fff}.btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-sm{padding:8px 14px;font-size:13px;border-radius:9px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}@media(max-width:520px){.grid{grid-template-columns:1fr}}
+  .tag{position:relative;background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:16px 16px 16px 22px;box-shadow:var(--shadow);cursor:pointer;transition:.18s;overflow:hidden}
+  .tag:hover{transform:translateY(-2px);border-color:var(--line2)}
+  .tag::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--gold)}
+  .tag.s-claimed::before{background:var(--muted)}.tag.s-pending::before{background:var(--terra)}
+  .tag .cat{font-size:11px;font-weight:700;color:var(--teal);letter-spacing:.08em;text-transform:uppercase}
+  .tag h3{font-family:"Noto Serif SC",serif;font-size:18px;font-weight:700;margin:3px 0 6px}
+  .tag .meta{font-size:12.5px;color:var(--ink2);display:flex;flex-wrap:wrap;gap:4px 12px}
+  .pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;margin-top:8px}
+  .pill.available{background:rgba(194,138,51,.16);color:var(--gold)}.pill.pending{background:rgba(196,72,46,.13);color:var(--terra)}.pill.claimed{background:rgba(138,130,112,.18);color:var(--muted)}
+  .empty{text-align:center;color:var(--muted);padding:48px 16px;font-size:14px;border:1.5px dashed var(--line2);border-radius:14px}
+  .notice{background:var(--paper2);border:1.5px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:20px}
+  .notice h4{font-family:"Noto Serif SC",serif;font-size:16px;margin-bottom:10px}
+  .notice ol{margin-left:18px;font-size:13.5px;color:var(--ink2)}.notice ol li{margin:6px 0}
+  .overlay{position:fixed;inset:0;background:rgba(20,28,25,.5);backdrop-filter:blur(3px);display:none;align-items:flex-start;justify-content:center;padding:24px 14px;z-index:50;overflow-y:auto}
+  .overlay.on{display:flex}
+  .modal{background:var(--paper);border-radius:18px;max-width:560px;width:100%;box-shadow:0 30px 80px -20px rgba(0,0,0,.5);border:1px solid var(--line);margin:auto;overflow:hidden}
+  .modal-head{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:flex-start;gap:12px;background:var(--card)}
+  .modal-head h2{font-family:"Noto Serif SC",serif;font-size:20px}
+  .modal-body{padding:22px}
+  .x{background:none;border:none;font-size:24px;color:var(--muted);cursor:pointer;line-height:1}
+  .kv{display:flex;gap:10px;font-size:13.5px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .kv .k{color:var(--muted);min-width:74px;font-weight:700}
+  .code-box{font-family:"DM Mono",monospace;font-size:22px;font-weight:500;letter-spacing:.15em;color:var(--terra);background:var(--card);border:1.5px dashed var(--terra);border-radius:12px;padding:14px;text-align:center;margin:14px 0}
+  .check{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--ink2);margin:9px 0;cursor:pointer;line-height:1.45}
+  .check input{width:18px;height:18px;flex-shrink:0;margin-top:2px;accent-color:var(--teal)}
+  .lock{max-width:380px;margin:30px auto;text-align:center;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:30px 24px;box-shadow:var(--shadow)}
+  .lock .icon{font-size:34px;margin-bottom:6px}
+  .staff-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px}
+  .staff-tabs button{font-family:inherit;font-size:12.5px;font-weight:700;border:1.5px solid var(--line2);background:var(--card);color:var(--ink2);padding:8px 14px;border-radius:20px;cursor:pointer}
+  .staff-tabs button.on{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .sec{display:none}.sec.on{display:block}
+  .claimrow{background:var(--card);border:1.5px solid var(--line);border-radius:13px;padding:14px 16px;margin-bottom:12px}
+  .claimrow .top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}
+  .claimrow .acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .small{font-size:12px;color:var(--muted)}
+  #qrout{display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:16px}
+  #qrcode{background:#fff;padding:16px;border-radius:14px;border:1px solid var(--line);box-shadow:var(--shadow)}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--paper);padding:12px 22px;border-radius:30px;font-size:13.5px;font-weight:500;opacity:0;transition:.3s;z-index:99;box-shadow:var(--shadow)}
+  .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+  .hint{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5}
+  .divider{height:1px;background:var(--line);margin:22px 0}
+  footer{text-align:center;font-size:11.5px;color:var(--muted);margin-top:40px;line-height:1.7}
+  @media print{body *{visibility:hidden}#poster,#poster *{visibility:visible}#poster{position:absolute;left:0;top:0;width:100%;display:block!important}}
+  #poster{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="dot"></span> 客服台服务 · LOST &amp; FOUND</div>
+    <h1>失物招领与认领</h1>
+    <p class="sub">查询已拾获的物品、提交认领申请，或登记您丢失的物品。认领须经客服核验。</p>
+  </header>
+
+  <nav>
+    <button class="on" data-tab="board">招领公示</button>
+    <button data-tab="report">我丢了东西</button>
+    <button data-tab="staff">客服后台</button>
+  </nav>
+
+  <!-- 招领公示 -->
+  <section class="panel on" id="tab-board">
+    <div class="searchbar">
+      <input id="search" placeholder="搜索物品名称 / 类别 / 拾获地点…">
+      <button class="btn btn-ghost btn-sm" onclick="loadBoard()">搜索</button>
+    </div>
+    <div id="boardGrid" class="grid"></div>
+  </section>
+
+  <!-- 寻物登记 -->
+  <section class="panel" id="tab-report">
+    <div class="notice"><h4>📋 没找到您的物品？</h4>
+      <p style="font-size:13.5px;color:var(--ink2)">填写寻物启事，客服收到匹配物品时会主动联系您。请尽量描述清楚特征。</p></div>
+    <div class="field"><label>物品名称 *</label><input id="r_name" placeholder="如：黑色钱包 / iPhone 手机"></div>
+    <div class="row">
+      <div class="field"><label>大致丢失时间 *</label><input id="r_date" type="date"></div>
+      <div class="field"><label>丢失地点 *</label><input id="r_loc" placeholder="如：3楼洗手间"></div>
+    </div>
+    <div class="field"><label>详细特征描述 *</label><textarea id="r_desc" placeholder="颜色、品牌、内含物、独特标记等"></textarea></div>
+    <div class="row">
+      <div class="field"><label>您的姓名 *</label><input id="r_who"></div>
+      <div class="field"><label>联系电话 *</label><input id="r_phone"></div>
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="submitReport()">提交寻物启事</button>
+  </section>
+
+  <!-- 客服后台 -->
+  <section class="panel" id="tab-staff">
+    <div class="lock" id="lock">
+      <div class="icon">🔐</div>
+      <h2 style="font-family:'Noto Serif SC',serif;margin-bottom:4px">客服后台</h2>
+      <p class="small" style="margin-bottom:16px">请输入后台密码登录</p>
+      <div class="field"><input id="u_pw" type="password" placeholder="后台密码" onkeydown="if(event.key==='Enter')login()"></div>
+      <button class="btn btn-teal" style="width:100%" onclick="login()">登录</button>
+    </div>
+
+    <div id="staffArea" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <span class="small">客服后台</span>
+        <button class="btn btn-ghost btn-sm" onclick="logout()">退出</button>
+      </div>
+      <div class="staff-tabs">
+        <button class="on" data-s="add">＋ 登记物品</button>
+        <button data-s="claims">认领审核 <b id="cBadge"></b></button>
+        <button data-s="reports">寻物启事 <b id="rBadge"></b></button>
+        <button data-s="qr">二维码/海报</button>
+      </div>
+
+      <div class="sec on" id="sec-add">
+        <div class="field"><label>物品名称 *</label><input id="i_name"></div>
+        <div class="row">
+          <div class="field"><label>类别</label>
+            <select id="i_cat"><option>证件卡包</option><option>电子设备</option><option>钱包现金</option><option>箱包行李</option><option>衣物配饰</option><option>钥匙</option><option>文件资料</option><option>雨伞</option><option>其他</option></select></div>
+          <div class="field"><label>存放位置</label><input id="i_store" placeholder="如：客服台 A 柜 02 格"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>拾获日期</label><input id="i_date" type="date"></div>
+          <div class="field"><label>拾获地点</label><input id="i_loc"></div>
+        </div>
+        <div class="field"><label>公开描述（公众可见）</label><textarea id="i_desc" placeholder="基本外观，避免泄露关键细节"></textarea></div>
+        <div class="field"><label>🔒 核验特征（仅客服可见）*</label><textarea id="i_secret" placeholder="隐藏特征，认领人需说对才允许领取"></textarea>
+          <p class="hint">认领核对依据，绝不会下发到公众页面。</p></div>
+        <button class="btn btn-primary" style="width:100%" onclick="addItem()">登记并生成取件编号</button>
+        <div class="divider"></div>
+        <div id="staffItems"></div>
+      </div>
+
+      <div class="sec" id="sec-claims"><div id="claimsList"></div></div>
+      <div class="sec" id="sec-reports"><div id="reportsList"></div></div>
+
+      <div class="sec" id="sec-qr">
+        <div class="field"><label>本服务访问网址</label><input id="qurl"></div>
+        <p class="hint">已自动填入当前网址，可自行修改。</p>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-teal btn-sm" onclick="genQR()">生成二维码</button>
+          <button class="btn btn-ghost btn-sm" onclick="window.print()" id="printBtn" disabled>打印海报</button>
+        </div>
+        <div id="qrout"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>认领须凭有效证件现场核验 · 数据仅用于物品登记与认领核验 · 冒领将依法承担责任</footer>
+</div>
+
+<div class="overlay" id="ov"><div class="modal">
+  <div class="modal-head"><h2 id="ovTitle"></h2><button class="x" onclick="closeOv()">×</button></div>
+  <div class="modal-body" id="ovBody"></div>
+</div></div>
+
+<div id="poster"><div style="text-align:center;padding:60px 40px;font-family:'Noto Serif SC',serif">
+  <div style="font-size:18px;letter-spacing:.3em;color:#1B6E62">客服台服务</div>
+  <h1 style="font-size:54px;margin:18px 0">失物招领</h1>
+  <p style="font-size:20px;color:#48564F;font-family:'Noto Sans SC'">丢了东西？扫码查询并提交认领</p>
+  <div id="posterQR" style="display:flex;justify-content:center;margin:34px 0"></div>
+  <p style="font-size:26px;font-weight:700">扫码查询 · 在线认领</p>
+  <p style="font-size:15px;color:#8A8270;margin-top:24px;font-family:'Noto Sans SC'">认领须凭有效证件现场核验</p>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),2400)}
+let TOKEN=null;
+try{TOKEN=localStorage.getItem('laf_token')}catch(e){}
+
+async function api(path,{method='GET',body,authed=false}={}){
+  const h={'Content-Type':'application/json'};
+  if(authed&&TOKEN)h.Authorization='Bearer '+TOKEN;
+  const r=await fetch('/api'+path,{method,headers:h,body:body?JSON.stringify(body):undefined});
+  let data={};try{data=await r.json()}catch(e){}
+  if(r.status===401&&authed){doLogout();throw new Error(data.error||'登录已失效')}
+  if(!r.ok)throw new Error(data.error||'请求失败');
+  return data;
+}
+
+/* 主标签 */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');$('tab-'+b.dataset.tab).classList.add('on');
+  if(b.dataset.tab==='staff'&&TOKEN)showStaff();
+});
+
+/* 招领公示 */
+function statusInfo(s){return s==='claimed'?{c:'claimed',t:'已认领'}:s==='pending'?{c:'pending',t:'认领审核中'}:{c:'available',t:'待认领'}}
+async function loadBoard(){
+  const q=encodeURIComponent(($('search').value||'').trim());
+  let list=[];try{list=await api('/items?q='+q)}catch(e){$('boardGrid').innerHTML='<div class="empty" style="grid-column:1/-1">加载失败：'+esc(e.message)+'</div>';return}
+  const g=$('boardGrid');
+  if(!list.length){g.innerHTML='<div class="empty" style="grid-column:1/-1">暂无匹配物品，可前往「我丢了东西」登记寻物启事。</div>';return}
+  g.innerHTML=list.map(it=>{const s=statusInfo(it.status);return `
+    <div class="tag s-${it.status}" onclick="openItem('${it.id}')">
+      <div class="cat">${esc(it.category||'其他')}</div><h3>${esc(it.name)}</h3>
+      <div class="meta"><span>📍 ${esc(it.found_location||'—')}</span><span>🗓 ${esc(it.found_date||'—')}</span></div>
+      <span class="pill ${s.c}">${s.t}</span></div>`}).join('');
+}
+$('search').oninput=()=>{clearTimeout(window._t);window._t=setTimeout(loadBoard,250)};
+
+async function openItem(id){
+  let it;try{it=await api('/items/'+id)}catch(e){return toast(e.message)}
+  const s=statusInfo(it.status);
+  $('ovTitle').textContent=it.name;
+  const ok=it.status==='available';
+  $('ovBody').innerHTML=`
+    <div class="kv"><span class="k">类别</span><span>${esc(it.category||'—')}</span></div>
+    <div class="kv"><span class="k">拾获地点</span><span>${esc(it.found_location||'—')}</span></div>
+    <div class="kv"><span class="k">拾获日期</span><span>${esc(it.found_date||'—')}</span></div>
+    <div class="kv"><span class="k">物品描述</span><span>${esc(it.public_description||'暂无')}</span></div>
+    <div class="kv"><span class="k">当前状态</span><span class="pill ${s.c}">${s.t}</span></div>
+    ${ok?`<div class="notice" style="margin:18px 0 6px"><h4>✅ 认领条件 — 须全部满足</h4><ol>
+      <li>准确说出本物品的<b>关键/隐藏特征</b>（与登记记录核对一致）</li>
+      <li>提供丢失的<b>大致时间与地点</b></li>
+      <li>提供<b>真实姓名与联系方式</b></li>
+      <li>领取时<b>出示有效身份证件</b>并现场核验</li>
+      <li>阅读并同意《认领须知》</li></ol></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="openClaim('${it.id}')">我要认领此物品</button>`
+    :`<p class="small" style="margin-top:14px">该物品${s.t}，如有疑问请咨询客服台。</p>`}`;
+  $('ov').classList.add('on');
+}
+function closeOv(){$('ov').classList.remove('on')}
+$('ov').onclick=e=>{if(e.target===$('ov'))closeOv()};
+
+function openClaim(id){
+  $('ovTitle').textContent='认领申请';
+  $('ovBody').innerHTML=`
+    <div class="field"><label>① 描述该物品的关键/隐藏特征 *</label><textarea id="c_feat" placeholder="如：内含卡片、夹层内容、独特标记等"></textarea></div>
+    <div class="row"><div class="field"><label>② 丢失时间 *</label><input id="c_date" type="date"></div>
+      <div class="field"><label>② 丢失地点 *</label><input id="c_loc"></div></div>
+    <div class="row"><div class="field"><label>③ 真实姓名 *</label><input id="c_name"></div>
+      <div class="field"><label>③ 联系电话 *</label><input id="c_phone"></div></div>
+    <div class="field"><label>④ 证件类型（现场核验）*</label>
+      <select id="c_idtype"><option value="">请选择</option><option>身份证</option><option>护照</option><option>驾驶证</option><option>学生证</option><option>工作证</option><option>其他</option></select></div>
+    <div class="divider"></div><p style="font-weight:700;font-size:13px;margin-bottom:8px">⑤ 认领须知</p>
+    <label class="check"><input type="checkbox" id="ck1"><span>我承诺信息真实，所述特征属于本人丢失的物品。</span></label>
+    <label class="check"><input type="checkbox" id="ck2"><span>我同意领取时出示有效证件供现场核验。</span></label>
+    <label class="check"><input type="checkbox" id="ck3"><span>我了解冒领、谎报将承担法律责任。</span></label>
+    <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="submitClaim('${id}')">提交认领申请</button>`;
+}
+async function submitClaim(id){
+  const b={feature_desc:$('c_feat').value.trim(),lost_date:$('c_date').value,lost_location:$('c_loc').value.trim(),
+    claimant_name:$('c_name').value.trim(),claimant_phone:$('c_phone').value.trim(),id_type:$('c_idtype').value,
+    agreed:$('ck1').checked&&$('ck2').checked&&$('ck3').checked};
+  if(!b.feature_desc||!b.lost_date||!b.lost_location||!b.claimant_name||!b.claimant_phone||!b.id_type)return toast('请完整填写所有必填项');
+  if(!b.agreed)return toast('请勾选全部认领须知');
+  let res;try{res=await api('/items/'+id+'/claims',{method:'POST',body:b})}catch(e){return toast(e.message)}
+  loadBoard();
+  $('ovBody').innerHTML=`<div style="text-align:center;padding:14px 0"><div style="font-size:40px">📨</div>
+    <h2 style="font-family:'Noto Serif SC',serif;margin:8px 0">申请已提交</h2>
+    <p class="small">客服将核对特征，通过后请携带<b>有效证件</b>到客服台领取。</p>
+    <div class="code-box">${esc(res.reference)}</div><p class="small">请记下此申请编号</p>
+    <button class="btn btn-ghost btn-sm" style="margin-top:14px" onclick="closeOv()">完成</button></div>`;
+}
+
+/* 寻物登记 */
+async function submitReport(){
+  const b={name:$('r_name').value.trim(),lost_date:$('r_date').value,lost_location:$('r_loc').value.trim(),
+    description:$('r_desc').value.trim(),reporter_name:$('r_who').value.trim(),reporter_phone:$('r_phone').value.trim()};
+  if(Object.values(b).some(v=>!v))return toast('请完整填写所有必填项');
+  try{await api('/reports',{method:'POST',body:b})}catch(e){return toast(e.message)}
+  ['r_name','r_date','r_loc','r_desc','r_who','r_phone'].forEach(i=>$(i).value='');
+  toast('寻物启事已提交，客服匹配到物品会联系您');
+}
+
+/* 客服后台 */
+async function login(){
+  const password=$('u_pw').value;
+  if(!password)return toast('请输入后台密码');
+  let res;try{res=await api('/login',{method:'POST',body:{password}})}catch(e){return toast(e.message)}
+  TOKEN=res.token;
+  try{localStorage.setItem('laf_token',TOKEN)}catch(e){}
+  $('u_pw').value='';showStaff();
+}
+function doLogout(){TOKEN=null;try{localStorage.removeItem('laf_token')}catch(e){}$('staffArea').style.display='none';$('lock').style.display='block'}
+function logout(){doLogout();toast('已退出登录')}
+function showStaff(){
+  $('lock').style.display='none';$('staffArea').style.display='block';
+  $('qurl').value=location.origin;
+  renderStaffItems();renderClaims();renderReports();
+}
+document.querySelectorAll('.staff-tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.staff-tabs button').forEach(x=>x.classList.remove('on'));
+  document.querySelectorAll('.sec').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');$('sec-'+b.dataset.s).classList.add('on');
+});
+
+async function addItem(){
+  const b={name:$('i_name').value.trim(),category:$('i_cat').value,storage_location:$('i_store').value.trim(),
+    found_date:$('i_date').value,found_location:$('i_loc').value.trim(),public_description:$('i_desc').value.trim(),
+    secret_feature:$('i_secret').value.trim()};
+  if(!b.name)return toast('请填写物品名称');
+  if(!b.secret_feature)return toast('请填写核验特征');
+  let res;try{res=await api('/items',{method:'POST',body:b,authed:true})}catch(e){return toast(e.message)}
+  ['i_name','i_store','i_loc','i_desc','i_secret'].forEach(i=>$(i).value='');
+  toast('已登记 · 取件编号 '+res.pickup_code);renderStaffItems();loadBoard();
+}
+async function renderStaffItems(){
+  let list=[];try{list=await api('/staff/items',{authed:true})}catch(e){return}
+  $('staffItems').innerHTML='<p class="small" style="margin-bottom:10px">已登记物品 '+list.length+' 件</p>'+(list.length?list.map(it=>{
+    const s=statusInfo(it.status);return `<div class="claimrow"><div class="top"><b>${esc(it.name)}</b><span class="pill ${s.c}">${s.t}</span></div>
+      <div class="kv"><span class="k">取件码</span><span style="font-family:'DM Mono',monospace">${esc(it.pickup_code)}</span></div>
+      <div class="kv"><span class="k">存放</span><span>${esc(it.storage_location||'—')}</span></div>
+      <div class="kv"><span class="k" style="color:var(--terra)">🔒 核验特征</span><span style="color:var(--terra)">${esc(it.secret_feature)}</span></div>
+      ${it.pending_claims?`<div class="small" style="color:var(--terra);margin-top:6px">有 ${it.pending_claims} 条待审核认领</div>`:''}</div>`}).join(''):'');
+}
+
+async function renderClaims(){
+  let list=[];try{list=await api('/staff/claims',{authed:true})}catch(e){return}
+  const L=$('claimsList');const pend=list.filter(c=>c.status==='pending');
+  $('cBadge').textContent=pend.length?'('+pend.length+')':'';
+  if(!list.length){L.innerHTML='<div class="empty">暂无认领申请</div>';return}
+  L.innerHTML=list.map(c=>{
+    const done=c.status!=='pending';
+    return `<div class="claimrow" style="${done?'opacity:.7':''}">
+      <div class="top"><b>${esc(c.item_name)}</b><span class="pill ${c.status==='approved'?'available':c.status==='rejected'?'claimed':'pending'}">${c.status==='approved'?'已通过':c.status==='rejected'?'已驳回':'待审核'}</span></div>
+      <div class="kv"><span class="k">申请人</span><span>${esc(c.claimant_name)} · ${esc(c.claimant_phone)} · ${esc(c.id_type)}</span></div>
+      <div class="kv"><span class="k">丢失</span><span>${esc(c.lost_date)} · ${esc(c.lost_location)}</span></div>
+      <div class="kv"><span class="k">自述特征</span><span>${esc(c.feature_desc)}</span></div>
+      <div class="kv"><span class="k" style="color:var(--terra)">🔒 登记特征</span><span style="color:var(--terra)">${esc(c.secret_feature)}</span></div>
+      ${done?'':`<div class="acts"><button class="btn btn-teal btn-sm" onclick="decide('${c.id}','approved')">核验通过 · 准予领取</button>
+        <button class="btn btn-ghost btn-sm" onclick="decide('${c.id}','rejected')">驳回</button></div>`}</div>`;
+  }).join('');
+}
+async function decide(id,decision){
+  try{await api('/staff/claims/'+id+'/decide',{method:'POST',body:{decision},authed:true})}catch(e){return toast(e.message)}
+  toast(decision==='approved'?'已通过，物品标记为已认领':'已驳回，物品恢复待认领');
+  renderClaims();renderStaffItems();loadBoard();
+}
+
+async function renderReports(){
+  let list=[];try{list=await api('/staff/reports',{authed:true})}catch(e){return}
+  $('rBadge').textContent=list.filter(r=>!r.done).length?'('+list.filter(r=>!r.done).length+')':'';
+  const L=$('reportsList');
+  if(!list.length){L.innerHTML='<div class="empty">暂无寻物启事</div>';return}
+  L.innerHTML=list.map(r=>`<div class="claimrow" style="${r.done?'opacity:.6':''}">
+    <div class="top"><b>${esc(r.name)}</b><span class="small">${new Date(r.created_at).toLocaleDateString()}</span></div>
+    <div class="kv"><span class="k">丢失</span><span>${esc(r.lost_date)} · ${esc(r.lost_location)}</span></div>
+    <div class="kv"><span class="k">特征</span><span>${esc(r.description)}</span></div>
+    <div class="kv"><span class="k">联系</span><span>${esc(r.reporter_name)} · ${esc(r.reporter_phone)}</span></div>
+    <div class="acts"><button class="btn btn-ghost btn-sm" onclick="toggleReport('${r.id}',${r.done?0:1})">${r.done?'标记未处理':'标记已处理'}</button></div></div>`).join('');
+}
+async function toggleReport(id,done){try{await api('/staff/reports/'+id,{method:'PATCH',body:{done:!!done},authed:true})}catch(e){return toast(e.message)}renderReports()}
+
+/* 二维码 */
+function genQR(){
+  let url=$('qurl').value.trim()||location.origin;
+  if(!/^https?:\/\//.test(url))url='https://'+url;
+  $('qrout').innerHTML='<div id="qrcode"></div><p class="small">扫描测试 · 长按或右键保存图片</p>';$('posterQR').innerHTML='';
+  new QRCode($('qrcode'),{text:url,width:220,height:220,colorDark:'#1E2C28',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.H});
+  new QRCode($('posterQR'),{text:url,width:300,height:300,colorDark:'#1E2C28',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.H});
+  $('printBtn').disabled=false;toast('二维码已生成');
+}
+
+/* 启动 */
+loadBoard();
+</script>
+</body>
+</html>

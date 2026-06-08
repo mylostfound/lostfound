@@ -1,0 +1,16 @@
+{
+  "name": "laf-cloud",
+  "version": "1.0.0",
+  "description": "客服台失物招领系统 · 云端版（Render + Neon，免费、随处共享）",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
