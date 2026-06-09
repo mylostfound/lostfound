@@ -25,6 +25,7 @@ let data = { items: [], claims: [], reports: [], audit: [], seq: { audit: 0 } };
 async function initDB() {
   await sql`CREATE TABLE IF NOT EXISTS kv (id INT PRIMARY KEY, doc JSONB NOT NULL)`;
   await sql`CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, b64 TEXT NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS access_log (id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now(), ip TEXT, ua TEXT, kind TEXT)`;
   const rows = await sql`SELECT doc FROM kv WHERE id = 1`;
   if (rows.length) { const d = rows[0].doc; data = (typeof d === 'string') ? JSON.parse(d) : d; }
   else { await sql`INSERT INTO kv (id, doc) VALUES (1, ${JSON.stringify(data)}::jsonb)`; }
@@ -82,6 +83,15 @@ async function deleteMedia(ids) {
   if (Array.isArray(ids)) for (const id of ids) { try { await sql`DELETE FROM media WHERE id = ${id}`; } catch (e) {} }
 }
 
+/* ---------- 访问记录（匿名：时间 / IP / 设备 / 类型；保留约 30 天） ---------- */
+function logAccess(req, kind) {
+  const ip = (req.ip || (req.headers['x-forwarded-for'] || '').split(',')[0] || '').trim();
+  const ua = (req.headers['user-agent'] || '').slice(0, 200);
+  sql`INSERT INTO access_log (ip, ua, kind) VALUES (${ip}, ${ua}, ${kind})`
+    .then(() => { if (Math.random() < 0.04) return sql`DELETE FROM access_log WHERE ts < now() - interval '30 days'`; })
+    .catch(() => {});
+}
+
 function auth(req, res, next) {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
@@ -95,7 +105,8 @@ const publicItem = it => ({ id: it.id, name: it.name, category: it.category, fou
 app.post('/api/login', loginLimiter, (req, res) => {
   const p = str(req.body.password, { required: true, max: 200 });
   if (p.err) return res.status(400).json({ error: '请输入密码' });
-  if (!verifyPassword(p.v)) return res.status(401).json({ error: '密码错误' });
+  if (!verifyPassword(p.v)) { logAccess(req, 'login_fail'); return res.status(401).json({ error: '密码错误' }); }
+  logAccess(req, 'login_ok');
   res.json({ token: jwt.sign({ role: 'staff' }, JWT_SECRET, { expiresIn: TOKEN_EXPIRES }) });
 });
 
@@ -139,6 +150,7 @@ app.post('/api/items/:id/claims', publicWriteLimiter, async (req, res) => {
   data.claims.push({ id, item_id: it.id, feature_desc: f.v, lost_date: ld.v, lost_location: ll.v, claimant_name: nm.v, claimant_phone: ph.v, id_type: it2.v, status: 'pending', created_at: now(), decided_at: null });
   it.status = 'pending';
   await save();
+  logAccess(req, 'claim');
   res.json({ ok: true, reference: id.slice(-6).toUpperCase() });
 });
 app.post('/api/reports', publicWriteLimiter, async (req, res) => {
@@ -152,6 +164,7 @@ app.post('/api/reports', publicWriteLimiter, async (req, res) => {
   const photos = await storePhotos(req.body.photos);
   data.reports.push({ id: newId(), name: nm.v, lost_date: ld.v, lost_location: ll.v, description: ds.v, reporter_name: rn.v, reporter_phone: rp.v, photos, done: 0, created_at: now() });
   await save();
+  logAccess(req, 'report');
   res.json({ ok: true });
 });
 
@@ -236,9 +249,39 @@ app.post('/api/staff/import', auth, async (req, res) => {
   res.json({ ok: true, items: data.items.length });
 });
 
+/* 访问记录与操作日志 */
+app.get('/api/staff/access', auth, async (req, res) => {
+  try {
+    const stats = await sql`SELECT
+      count(*) FILTER (WHERE kind='visit') AS total_visits,
+      count(*) FILTER (WHERE kind='visit' AND ts >= date_trunc('day', now())) AS today_visits,
+      count(DISTINCT ip) FILTER (WHERE kind='visit' AND ts >= date_trunc('day', now())) AS today_ips,
+      count(*) FILTER (WHERE kind='login_ok') AS logins,
+      count(*) FILTER (WHERE kind='login_fail') AS login_fails
+      FROM access_log`;
+    const daily = await sql`
+      SELECT to_char(g.d,'MM-DD') AS day,
+        count(a.id) FILTER (WHERE a.kind='visit') AS visits,
+        count(a.id) FILTER (WHERE a.kind LIKE 'login\_%') AS backend
+      FROM generate_series((now()::date - interval '13 days'), now()::date, interval '1 day') AS g(d)
+      LEFT JOIN access_log a ON date_trunc('day', a.ts) = g.d
+      GROUP BY g.d ORDER BY g.d`;
+    const recent = await sql`SELECT ts, ip, ua, kind FROM access_log ORDER BY id DESC LIMIT 200`;
+    res.json({ stats: stats[0] || {}, daily, recent, claims: data.claims.length, reports: data.reports.length });
+  } catch (e) { res.status(500).json({ error: '查询失败' }); }
+});
+app.get('/api/staff/access/export', auth, async (req, res) => {
+  try { res.json(await sql`SELECT ts, ip, ua, kind FROM access_log ORDER BY id DESC LIMIT 3000`); }
+  catch (e) { res.status(500).json({ error: '导出失败' }); }
+});
+app.get('/api/staff/audit', auth, (req, res) => {
+  res.json([...data.audit].sort((a, b) => b.id - a.id).slice(0, 200));
+});
+
 /* ---------- 前端页面（仅返回 index.html，不暴露源码） ---------- */
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: '接口不存在' });
+  if ((req.headers.accept || '').includes('text/html')) logAccess(req, 'visit');
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 

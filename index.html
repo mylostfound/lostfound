@@ -84,6 +84,21 @@
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
   .hint{font-size:12px;color:var(--muted);margin-top:5px;line-height:1.5}
   .divider{height:1px;background:var(--line);margin:22px 0}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:10px}
+  .stat{background:var(--card);border:1.5px solid var(--line);border-radius:13px;padding:14px 8px;text-align:center;box-shadow:var(--shadow)}
+  .stat .n{font-family:'DM Mono',monospace;font-size:23px;font-weight:500;color:var(--terra)}
+  .stat .l{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .chart{display:flex;align-items:flex-end;gap:3px;height:118px}
+  .chart .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;height:100%}
+  .chart .bar{display:flex;flex-direction:column;justify-content:flex-end;width:62%;max-width:16px;height:96px}
+  .chart .bar i{display:block;width:100%}
+  .chart .seg-b{background:var(--terra)}
+  .chart .seg-v{background:var(--teal);border-radius:2px 2px 0 0}
+  .chart .d{font-size:9px;color:var(--muted);line-height:1}
+  .legend{display:flex;gap:18px;font-size:11.5px;color:var(--ink2);margin-top:10px;justify-content:center}
+  .legend i.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+  .logrow{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:8px 2px;border-bottom:1px dashed var(--line)}
+  .logrow .t{color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap}
   .chips{display:flex;gap:8px;margin-bottom:16px}
   .chips button{flex:0 0 auto;font-family:inherit;font-size:13px;font-weight:700;border:1.5px solid var(--line2);background:var(--card);color:var(--ink2);padding:8px 18px;border-radius:22px;cursor:pointer;transition:.15s}
   .chips button.on{background:var(--terra);color:#fff;border-color:var(--terra)}
@@ -169,6 +184,7 @@
         <button data-s="claims">认领审核 <b id="cBadge"></b></button>
         <button data-s="reports">寻物启事 <b id="rBadge"></b></button>
         <button data-s="qr">二维码/海报</button>
+        <button data-s="access">访问记录</button>
         <button data-s="backup">备份</button>
       </div>
 
@@ -209,6 +225,28 @@
           <button class="btn btn-ghost btn-sm" onclick="window.print()" id="printBtn" disabled>打印海报</button>
         </div>
         <div id="qrout"></div>
+      </div>
+
+      <div class="sec" id="sec-access">
+        <div class="stats" id="accessStats"></div>
+        <div class="divider"></div>
+        <p class="small" style="font-weight:700;margin-bottom:8px">近 14 天访问趋势</p>
+        <div class="chart" id="trend"></div>
+        <div class="legend"><span><i class="sw" style="background:var(--teal)"></i>顾客访问</span><span><i class="sw" style="background:var(--terra)"></i>后台登录</span></div>
+        <div class="divider"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <div class="chips" style="margin:0">
+            <button class="on" data-af="all" onclick="setAccessFilter('all')">全部</button>
+            <button data-af="cust" onclick="setAccessFilter('cust')">顾客端</button>
+            <button data-af="staff" onclick="setAccessFilter('staff')">后台</button>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="exportAccess()">⬇ 导出访问记录</button>
+        </div>
+        <div id="visitList"></div>
+        <div class="divider"></div>
+        <p class="small" style="margin-bottom:8px;font-weight:700">后台操作日志</p>
+        <div id="auditList"></div>
+        <p class="hint" style="margin-top:12px">访问记录为匿名统计（时间 / 设备 / 脱敏 IP），不含真实身份，仅用于运营参考，约保留 30 天。提交认领或寻物的顾客身份请在「认领审核」「寻物启事」中查看。</p>
       </div>
 
       <div class="sec" id="sec-backup">
@@ -412,6 +450,7 @@ document.querySelectorAll('.staff-tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.staff-tabs button').forEach(x=>x.classList.remove('on'));
   document.querySelectorAll('.sec').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');$('sec-'+b.dataset.s).classList.add('on');
+  if(b.dataset.s==='access')renderAccess();
 });
 
 async function addItem(){
@@ -485,6 +524,57 @@ async function renderReports(){
     <div class="acts"><button class="btn btn-ghost btn-sm" onclick="toggleReport('${r.id}',${r.done?0:1})">${r.done?'标记未处理':'标记已处理'}</button></div></div>`).join('');
 }
 async function toggleReport(id,done){try{await api('/staff/reports/'+id,{method:'PATCH',body:{done:!!done},authed:true})}catch(e){return toast(e.message)}renderReports()}
+
+/* 访问记录与操作日志 */
+function _dev(ua){ua=ua||'';if(/MicroMessenger/i.test(ua))return '微信';if(/iPhone|iPad/i.test(ua))return 'iPhone/iPad';if(/Android/i.test(ua))return '安卓';if(/Macintosh|Windows|Linux/i.test(ua))return '电脑';return '其他'}
+function _mask(ip){ip=(ip||'').trim();if(!ip)return '—';if(ip.indexOf('.')>=0){const p=ip.split('.');return p.length===4?p[0]+'.'+p[1]+'.*.*':ip}if(ip.indexOf(':')>=0){return ip.split(':').slice(0,2).join(':')+':**'}return ip}
+function _kind(k){return ({visit:'打开页面',claim:'认领提交',report:'寻物提交',login_ok:'后台登录成功',login_fail:'后台登录失败'})[k]||k}
+function _act(a){return ({add_item:'登记物品',update_item:'修改物品状态',delete_item:'删除物品',decide_claim:'审核认领'})[a]||a}
+function _t(t){if(!t)return '';const d=new Date(t),p=n=>String(n).padStart(2,'0');return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`}
+let ACCESS_RECENT=[], ACCESS_FILTER='all';
+const CUST_KINDS=['visit','claim','report'], STAFF_KINDS=['login_ok','login_fail'];
+async function renderAccess(){
+  let d;try{d=await api('/staff/access',{authed:true})}catch(e){return toast(e.message)}
+  let audit=[];try{audit=await api('/staff/audit',{authed:true})}catch(e){}
+  const s=d.stats||{};
+  $('accessStats').innerHTML=[['今日访问',s.today_visits||0],['今日设备数',s.today_ips||0],['累计访问',s.total_visits||0],['累计后台登录',s.logins||0]]
+    .map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+  // 趋势图
+  const days=d.daily||[];
+  const max=Math.max(1,...days.map(x=>Number(x.visits)+Number(x.backend)));
+  $('trend').innerHTML=days.map(x=>{
+    const v=Number(x.visits),b=Number(x.backend);
+    const vh=Math.round(v/max*96),bh=Math.round(b/max*96);
+    return `<div class="col" title="${x.day} 访问${v} 后台${b}">
+      <div class="bar">${b?`<i class="seg-b" style="height:${bh}px"></i>`:''}${v?`<i class="seg-v" style="height:${vh}px"></i>`:''}</div>
+      <span class="d">${(x.day||'').split('-')[1]}</span></div>`}).join('');
+  ACCESS_RECENT=d.recent||[];
+  renderVisitList();
+  $('auditList').innerHTML=(audit&&audit.length)
+    ? audit.map(a=>`<div class="logrow"><span>${_act(a.action)}${a.detail?'：'+esc(a.detail):''}</span><span class="t">${_t(a.created_at)}</span></div>`).join('')
+    : '<div class="empty">暂无操作记录</div>';
+}
+function setAccessFilter(f){ACCESS_FILTER=f;document.querySelectorAll('.chips button[data-af]').forEach(b=>b.classList.toggle('on',b.dataset.af===f));renderVisitList()}
+function renderVisitList(){
+  let list=ACCESS_RECENT;
+  if(ACCESS_FILTER==='cust')list=list.filter(r=>CUST_KINDS.includes(r.kind));
+  else if(ACCESS_FILTER==='staff')list=list.filter(r=>STAFF_KINDS.includes(r.kind));
+  $('visitList').innerHTML=list.length
+    ? list.map(r=>`<div class="logrow"><span>${_kind(r.kind)} · ${_dev(r.ua)}</span><span class="t">${_t(r.ts)} · ${_mask(r.ip)}</span></div>`).join('')
+    : '<div class="empty">暂无记录</div>';
+}
+async function exportAccess(){
+  let rows=[];try{rows=await api('/staff/access/export',{authed:true})}catch(e){return toast(e.message)}
+  const esc2=v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`;
+  const head=['时间','类型','设备','IP(脱敏)'];
+  const lines=[head.join(',')].concat(rows.map(r=>[_t(r.ts),_kind(r.kind),_dev(r.ua),_mask(r.ip)].map(esc2).join(',')));
+  const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  const u=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=u;a.download=`访问记录-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}.csv`;
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);
+  toast('访问记录已导出');
+}
 
 /* 二维码 */
 function genQR(){
