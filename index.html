@@ -99,6 +99,12 @@
   .legend i.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
   .logrow{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:8px 2px;border-bottom:1px dashed var(--line)}
   .logrow .t{color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap}
+  .hbar{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:13px}
+  .hbar .nm{min-width:64px}
+  .hbar .track{flex:1;height:14px;background:var(--paper2);border-radius:7px;overflow:hidden}
+  .hbar .fill{height:100%;background:var(--teal);border-radius:7px}
+  .hbar .ct{font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2);min-width:24px;text-align:right}
+  .alert{background:rgba(196,72,46,.08);border:1.5px solid rgba(196,72,46,.4);color:var(--terra-d);border-radius:12px;padding:12px 14px;font-size:13.5px;margin-bottom:14px}
   .chips{display:flex;gap:8px;margin-bottom:16px}
   .chips button{flex:0 0 auto;font-family:inherit;font-size:13px;font-weight:700;border:1.5px solid var(--line2);background:var(--card);color:var(--ink2);padding:8px 18px;border-radius:22px;cursor:pointer;transition:.15s}
   .chips button.on{background:var(--terra);color:#fff;border-color:var(--terra)}
@@ -181,11 +187,27 @@
       </div>
       <div class="staff-tabs">
         <button class="on" data-s="add">＋ 登记物品</button>
+        <button data-s="dash">📊 看板</button>
         <button data-s="claims">认领审核 <b id="cBadge"></b></button>
         <button data-s="reports">寻物启事 <b id="rBadge"></b></button>
         <button data-s="qr">二维码/海报</button>
         <button data-s="access">访问记录</button>
-        <button data-s="backup">备份</button>
+        <button data-s="backup">备份/设置</button>
+      </div>
+
+      <div class="sec" id="sec-dash">
+        <div id="dashOverdue"></div>
+        <div class="stats" id="dashStats"></div>
+        <div class="divider"></div>
+        <p class="small" style="font-weight:700;margin-bottom:8px">近 30 天 · 登记 vs 认领</p>
+        <div class="chart" id="dashTrend"></div>
+        <div class="legend"><span><i class="sw" style="background:var(--teal)"></i>新登记</span><span><i class="sw" style="background:var(--terra)"></i>认领成功</span></div>
+        <div class="divider"></div>
+        <p class="small" style="font-weight:700;margin-bottom:8px">热门遗失类别</p>
+        <div id="dashCats"></div>
+        <div class="divider"></div>
+        <p class="small" style="font-weight:700;margin-bottom:8px">客服工作量（累计）</p>
+        <div id="dashWork"></div>
       </div>
 
       <div class="sec on" id="sec-add">
@@ -250,6 +272,15 @@
       </div>
 
       <div class="sec" id="sec-backup">
+        <label>修改后台密码</label>
+        <div class="field"><input id="cp_cur" type="password" placeholder="当前密码"></div>
+        <div class="row">
+          <div class="field"><input id="cp_n1" type="password" placeholder="新密码（≥6 位）"></div>
+          <div class="field"><input id="cp_n2" type="password" placeholder="确认新密码"></div>
+        </div>
+        <button class="btn btn-teal btn-sm" onclick="changePw()">保存新密码</button>
+        <p class="hint" style="margin-top:6px">修改后所有人需用新密码登录；已登录的会话在过期后需重新登录。</p>
+        <div class="divider"></div>
         <label>数据备份</label>
         <p class="hint" style="margin-bottom:10px">导出会把全部物品、认领、寻物记录和照片打包成一个文件；导入会用所选文件覆盖云端全部数据。建议定期导出留底。</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -451,6 +482,7 @@ document.querySelectorAll('.staff-tabs button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.sec').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');$('sec-'+b.dataset.s).classList.add('on');
   if(b.dataset.s==='access')renderAccess();
+  if(b.dataset.s==='dash')renderDash();
 });
 
 async function addItem(){
@@ -477,6 +509,7 @@ async function renderStaffItems(){
       ${ph}
       <div class="kv"><span class="k">取件码</span><span style="font-family:'DM Mono',monospace">${esc(it.pickup_code)}</span></div>
       <div class="kv"><span class="k">存放</span><span>${esc(it.storage_location||'—')}</span></div>
+      <div class="kv"><span class="k">已保管</span><span>${it.age_days} 天 ${it.overdue?'<span class="pill pending">已超保管期</span>':''}</span></div>
       <div class="kv"><span class="k" style="color:var(--terra)">🔒 核验特征</span><span style="color:var(--terra)">${esc(it.secret_feature)}</span></div>
       ${it.pending_claims?`<div class="small" style="color:var(--terra);margin-top:6px">有 ${it.pending_claims} 条待审核认领</div>`:''}
       <div class="acts"><button class="btn btn-ghost btn-sm" onclick="delItem('${it.id}','${esc(it.name).replace(/'/g,'')}')">删除该登记</button></div></div>`}).join(''):'');
@@ -524,6 +557,39 @@ async function renderReports(){
     <div class="acts"><button class="btn btn-ghost btn-sm" onclick="toggleReport('${r.id}',${r.done?0:1})">${r.done?'标记未处理':'标记已处理'}</button></div></div>`).join('');
 }
 async function toggleReport(id,done){try{await api('/staff/reports/'+id,{method:'PATCH',body:{done:!!done},authed:true})}catch(e){return toast(e.message)}renderReports()}
+
+/* 数据看板 */
+async function renderDash(){
+  let d;try{d=await api('/staff/stats',{authed:true})}catch(e){return toast(e.message)}
+  $('dashOverdue').innerHTML=d.overdue?`<div class="alert">⚠ 有 ${d.overdue} 件物品已超过 ${d.legalDays} 天保管期（未认领），建议按规定清理或公告。可在「登记物品」列表查看带「已超保管期」标记的物品。</div>`:'';
+  $('dashStats').innerHTML=[
+    ['物品总数',d.total],['待认领',d.available],['已认领',d.claimed],
+    ['找回率',d.recoveryRate+'%'],['平均认领周期',d.avgCycle==null?'—':d.avgCycle+'天'],['待处理寻物',d.openReports]
+  ].map(([l,n])=>`<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join('');
+  // 30 天趋势
+  const days=d.daily||[];const max=Math.max(1,...days.map(x=>x.reg+x.claim));
+  $('dashTrend').innerHTML=days.map((x,i)=>{
+    const rh=Math.round(x.reg/max*96),ch=Math.round(x.claim/max*96);
+    return `<div class="col" title="${x.label} 登记${x.reg} 认领${x.claim}">
+      <div class="bar">${x.claim?`<i class="seg-b" style="height:${ch}px"></i>`:''}${x.reg?`<i class="seg-v" style="height:${rh}px"></i>`:''}</div>
+      <span class="d">${i%5===0?x.label.split('-')[1]:''}</span></div>`}).join('');
+  // 类别
+  const cmax=Math.max(1,...(d.categories||[]).map(c=>c.count));
+  $('dashCats').innerHTML=(d.categories&&d.categories.length)?d.categories.map(c=>`<div class="hbar"><span class="nm">${esc(c.name)}</span><span class="track"><span class="fill" style="width:${Math.round(c.count/cmax*100)}%"></span></span><span class="ct">${c.count}</span></div>`).join(''):'<div class="empty">暂无数据</div>';
+  // 工作量
+  const W={add_item:'登记物品',decide_claim:'审核认领',delete_item:'删除物品',update_item:'修改状态',change_password:'改密码'};
+  const we=Object.entries(d.work||{}).sort((a,b)=>b[1]-a[1]);
+  $('dashWork').innerHTML=we.length?we.map(([k,v])=>`<div class="logrow"><span>${W[k]||k}</span><span class="t">${v} 次</span></div>`).join(''):'<div class="empty">暂无操作</div>';
+}
+async function changePw(){
+  const cur=$('cp_cur').value,n1=$('cp_n1').value,n2=$('cp_n2').value;
+  if(!cur||!n1)return toast('请填写完整');
+  if(n1.length<6)return toast('新密码至少 6 位');
+  if(n1!==n2)return toast('两次输入不一致');
+  try{await api('/account/password',{method:'POST',body:{currentPassword:cur,newPassword:n1},authed:true})}catch(e){return toast(e.message)}
+  ['cp_cur','cp_n1','cp_n2'].forEach(i=>$(i).value='');
+  toast('密码已更新，请牢记新密码');
+}
 
 /* 访问记录与操作日志 */
 function _dev(ua){ua=ua||'';if(/MicroMessenger/i.test(ua))return '微信';if(/iPhone|iPad/i.test(ua))return 'iPhone/iPad';if(/Android/i.test(ua))return '安卓';if(/Macintosh|Windows|Linux/i.test(ua))return '电脑';return '其他'}

@@ -39,10 +39,11 @@ function save() {
 }
 
 function verifyPassword(input) {
-  const i = PASS_HASH.indexOf(':');
+  const target = (data && data.passHash) || PASS_HASH;
+  const i = target.indexOf(':');
   if (i < 0) return false;
-  const salt = Buffer.from(PASS_HASH.slice(0, i), 'hex');
-  const key = Buffer.from(PASS_HASH.slice(i + 1), 'hex');
+  const salt = Buffer.from(target.slice(0, i), 'hex');
+  const key = Buffer.from(target.slice(i + 1), 'hex');
   let dk; try { dk = crypto.scryptSync(String(input), salt, key.length); } catch { return false; }
   return dk.length === key.length && crypto.timingSafeEqual(dk, key);
 }
@@ -62,6 +63,32 @@ const pickupCode = () => { const L = 'ABCDEFGHJKMNPQRSTUVWXY'; let s = ''; for (
 function str(v, { required = false, max = 500 } = {}) { if (v == null) v = ''; v = String(v).trim(); if (required && !v) return { err: true }; if (v.length > max) v = v.slice(0, max); return { v }; }
 function audit(action, detail) { data.audit.push({ id: ++data.seq.audit, action, detail: detail ?? null, created_at: now() }); if (data.audit.length > 1000) data.audit = data.audit.slice(-1000); }
 const byNewest = (a, b) => (a.created_at < b.created_at ? 1 : -1);
+
+// 法定保管期阈值（天），可用 .env 的 LEGAL_DAYS 覆盖
+const LEGAL_DAYS = parseInt(process.env.LEGAL_DAYS, 10) || 180;
+
+// 同义词组：搜索任一词可命中同组其它词
+const SYN = [
+  ['充电宝', '移动电源', 'power bank', 'powerbank'],
+  ['钱包', '银包', '皮夹', '卡包'],
+  ['手机', '电话', 'iphone', '安卓', 'phone'],
+  ['雨伞', '遮阳伞', '伞'],
+  ['钥匙', '门匙', '车钥匙'],
+  ['耳机', 'airpods', '蓝牙耳机', '耳塞'],
+  ['水杯', '保温杯', '水壶', '杯子'],
+  ['身份证', '证件', '银行卡', '卡片'],
+  ['电脑', '笔记本', 'laptop', '平板', 'ipad'],
+  ['背包', '书包', '双肩包', '包', '手袋'],
+  ['手表', '腕表', 'watch'],
+  ['眼镜', '墨镜', '太阳镜'],
+];
+function expandQuery(q) {
+  q = q.toLowerCase();
+  const terms = new Set([q]);
+  for (const g of SYN) if (g.some(w => q.includes(w.toLowerCase()) || w.toLowerCase().includes(q))) g.forEach(w => terms.add(w.toLowerCase()));
+  return [...terms];
+}
+const ageDays = ts => Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
 
 /* ---------- 照片（存于独立 media 表，不进主数据，避免拖慢） ---------- */
 const MAX_PHOTOS = 3;
@@ -114,7 +141,7 @@ app.post('/api/login', loginLimiter, (req, res) => {
 app.get('/api/items', (req, res) => {
   const q = str(req.query.q, { max: 100 }).v.toLowerCase();
   let list = [...data.items];
-  if (q) list = list.filter(it => `${it.name}${it.category}${it.found_location}${it.public_description}`.toLowerCase().includes(q));
+  if (q) { const terms = expandQuery(q); list = list.filter(it => { const hay = `${it.name}${it.category}${it.found_location}${it.public_description}`.toLowerCase(); return terms.some(t => t && hay.includes(t)); }); }
   list.sort(byNewest);
   res.json(list.map(publicItem));
 });
@@ -170,7 +197,10 @@ app.post('/api/reports', publicWriteLimiter, async (req, res) => {
 
 /* ========== 客服（登录后） ========== */
 app.get('/api/staff/items', auth, (req, res) => {
-  res.json([...data.items].sort(byNewest).map(it => ({ ...it, pending_claims: data.claims.filter(c => c.item_id === it.id && c.status === 'pending').length })));
+  res.json([...data.items].sort(byNewest).map(it => {
+    const age = ageDays(it.created_at);
+    return { ...it, pending_claims: data.claims.filter(c => c.item_id === it.id && c.status === 'pending').length, age_days: age, overdue: it.status !== 'claimed' && age >= LEGAL_DAYS };
+  }));
 });
 app.post('/api/items', auth, async (req, res) => {
   const nm = str(req.body.name, { required: true, max: 120 });
@@ -276,6 +306,57 @@ app.get('/api/staff/access/export', auth, async (req, res) => {
 });
 app.get('/api/staff/audit', auth, (req, res) => {
   res.json([...data.audit].sort((a, b) => b.id - a.id).slice(0, 200));
+});
+
+/* 修改后台密码（覆盖内置密码，存于数据库） */
+app.post('/api/account/password', auth, async (req, res) => {
+  const cur = str(req.body.currentPassword, { required: true, max: 200 });
+  const nw = str(req.body.newPassword, { required: true, max: 200 });
+  if (cur.err || nw.err) return res.status(400).json({ error: '请填写完整' });
+  if (nw.v.length < 6) return res.status(400).json({ error: '新密码至少 6 位' });
+  if (!verifyPassword(cur.v)) return res.status(400).json({ error: '当前密码不正确' });
+  const salt = crypto.randomBytes(16);
+  data.passHash = salt.toString('hex') + ':' + crypto.scryptSync(nw.v, salt, 64).toString('hex');
+  audit('change_password', '后台密码已修改');
+  await save();
+  res.json({ ok: true });
+});
+
+/* 数据看板：运营指标 */
+app.get('/api/staff/stats', auth, (req, res) => {
+  const items = data.items, claims = data.claims;
+  const total = items.length;
+  const claimed = items.filter(i => i.status === 'claimed').length;
+  const pending = items.filter(i => i.status === 'pending').length;
+  const available = items.filter(i => i.status === 'available').length;
+  const overdue = items.filter(i => i.status !== 'claimed' && ageDays(i.created_at) >= LEGAL_DAYS).length;
+  // 平均认领周期（天）：审核通过的认领，从物品登记到审核通过
+  const approved = claims.filter(c => c.status === 'approved' && c.decided_at);
+  let avgCycle = null;
+  if (approved.length) {
+    let sum = 0, n = 0;
+    for (const c of approved) { const it = items.find(i => i.id === c.item_id); if (it) { sum += (new Date(c.decided_at) - new Date(it.created_at)) / 86400000; n++; } }
+    if (n) avgCycle = Math.round(sum / n * 10) / 10;
+  }
+  // 热门类别 Top
+  const catMap = {};
+  for (const i of items) { const k = i.category || '其他'; catMap[k] = (catMap[k] || 0) + 1; }
+  const categories = Object.entries(catMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 6);
+  // 近 30 天每日：登记 vs 认领通过
+  const days = [];
+  for (let k = 29; k >= 0; k--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - k); days.push({ key: d.toISOString().slice(0, 10), label: `${d.getMonth() + 1}-${d.getDate()}`, reg: 0, claim: 0 }); }
+  const idx = {}; days.forEach((d, i) => idx[d.key] = i);
+  for (const it of items) { const k = new Date(it.created_at).toISOString().slice(0, 10); if (k in idx) days[idx[k]].reg++; }
+  for (const c of approved) { const k = new Date(c.decided_at).toISOString().slice(0, 10); if (k in idx) days[idx[k]].claim++; }
+  // 客服工作量（审计动作计数）
+  const work = {};
+  for (const a of data.audit) work[a.action] = (work[a.action] || 0) + 1;
+  res.json({
+    total, claimed, pending, available, overdue, legalDays: LEGAL_DAYS,
+    recoveryRate: total ? Math.round(claimed / total * 100) : 0,
+    avgCycle, categories, daily: days, work,
+    reports: data.reports.length, openReports: data.reports.filter(r => !r.done).length,
+  });
 });
 
 /* ---------- 前端页面（仅返回 index.html，不暴露源码） ---------- */
