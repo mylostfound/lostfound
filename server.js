@@ -24,6 +24,7 @@ const sql = neon(process.env.DATABASE_URL);
 let data = { items: [], claims: [], reports: [], audit: [], seq: { audit: 0 } };
 async function initDB() {
   await sql`CREATE TABLE IF NOT EXISTS kv (id INT PRIMARY KEY, doc JSONB NOT NULL)`;
+  await sql`CREATE TABLE IF NOT EXISTS media (id TEXT PRIMARY KEY, b64 TEXT NOT NULL)`;
   const rows = await sql`SELECT doc FROM kv WHERE id = 1`;
   if (rows.length) { const d = rows[0].doc; data = (typeof d === 'string') ? JSON.parse(d) : d; }
   else { await sql`INSERT INTO kv (id, doc) VALUES (1, ${JSON.stringify(data)}::jsonb)`; }
@@ -48,7 +49,7 @@ function verifyPassword(input) {
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));   // 前端用了 CDN 字体/库与内联脚本，关闭 CSP 以免被拦
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '25mb' }));   // 容纳含照片的提交与备份导入
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: '登录尝试过于频繁，请 15 分钟后再试' } });
 const publicWriteLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: '操作过于频繁，请稍后再试' } });
@@ -61,6 +62,26 @@ function str(v, { required = false, max = 500 } = {}) { if (v == null) v = ''; v
 function audit(action, detail) { data.audit.push({ id: ++data.seq.audit, action, detail: detail ?? null, created_at: now() }); if (data.audit.length > 1000) data.audit = data.audit.slice(-1000); }
 const byNewest = (a, b) => (a.created_at < b.created_at ? 1 : -1);
 
+/* ---------- 照片（存于独立 media 表，不进主数据，避免拖慢） ---------- */
+const MAX_PHOTOS = 3;
+async function storeMedia(dataUrl) {
+  if (typeof dataUrl !== 'string') return null;
+  const m = /^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!m) return null;
+  if (Buffer.from(m[2], 'base64').length > 1024 * 1024) return null; // 单图上限 ~1MB
+  const id = newId();
+  await sql`INSERT INTO media (id, b64) VALUES (${id}, ${dataUrl})`;
+  return id;
+}
+async function storePhotos(arr) {
+  const out = [];
+  if (Array.isArray(arr)) for (const d of arr.slice(0, MAX_PHOTOS)) { const id = await storeMedia(d); if (id) out.push(id); }
+  return out;
+}
+async function deleteMedia(ids) {
+  if (Array.isArray(ids)) for (const id of ids) { try { await sql`DELETE FROM media WHERE id = ${id}`; } catch (e) {} }
+}
+
 function auth(req, res, next) {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
@@ -68,7 +89,7 @@ function auth(req, res, next) {
   try { req.user = jwt.verify(token, JWT_SECRET); next(); }
   catch { return res.status(401).json({ error: '登录已失效，请重新登录' }); }
 }
-const publicItem = it => ({ id: it.id, name: it.name, category: it.category, found_location: it.found_location, found_date: it.found_date, public_description: it.public_description, status: it.status });
+const publicItem = it => ({ id: it.id, name: it.name, category: it.category, found_location: it.found_location, found_date: it.found_date, public_description: it.public_description, status: it.status, photos: it.photos || [] });
 
 /* ========== 登录（只需密码） ========== */
 app.post('/api/login', loginLimiter, (req, res) => {
@@ -90,6 +111,17 @@ app.get('/api/items/:id', (req, res) => {
   const it = data.items.find(x => x.id === req.params.id);
   if (!it) return res.status(404).json({ error: '物品不存在' });
   res.json(publicItem(it));
+});
+app.get('/api/media/:id', async (req, res) => {
+  try {
+    const rows = await sql`SELECT b64 FROM media WHERE id = ${req.params.id}`;
+    if (!rows.length) return res.status(404).end();
+    const m = /^data:(image\/[a-zA-Z+]+);base64,([\s\S]*)$/.exec(rows[0].b64);
+    if (!m) return res.status(404).end();
+    res.set('Content-Type', m[1]);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(Buffer.from(m[2], 'base64'));
+  } catch (e) { res.status(500).end(); }
 });
 app.post('/api/items/:id/claims', publicWriteLimiter, async (req, res) => {
   const it = data.items.find(x => x.id === req.params.id);
@@ -117,7 +149,8 @@ app.post('/api/reports', publicWriteLimiter, async (req, res) => {
   const rn = str(req.body.reporter_name, { required: true, max: 60 });
   const rp = str(req.body.reporter_phone, { required: true, max: 40 });
   if (nm.err || ld.err || ll.err || ds.err || rn.err || rp.err) return res.status(400).json({ error: '请完整填写寻物信息' });
-  data.reports.push({ id: newId(), name: nm.v, lost_date: ld.v, lost_location: ll.v, description: ds.v, reporter_name: rn.v, reporter_phone: rp.v, done: 0, created_at: now() });
+  const photos = await storePhotos(req.body.photos);
+  data.reports.push({ id: newId(), name: nm.v, lost_date: ld.v, lost_location: ll.v, description: ds.v, reporter_name: rn.v, reporter_phone: rp.v, photos, done: 0, created_at: now() });
   await save();
   res.json({ ok: true });
 });
@@ -132,7 +165,8 @@ app.post('/api/items', auth, async (req, res) => {
   if (nm.err) return res.status(400).json({ error: '请填写物品名称' });
   if (secret.err) return res.status(400).json({ error: '请填写核验特征（认领核对依据）' });
   const id = newId(); const code = pickupCode();
-  data.items.push({ id, pickup_code: code, name: nm.v, category: str(req.body.category, { max: 40 }).v, storage_location: str(req.body.storage_location, { max: 120 }).v, found_date: str(req.body.found_date, { max: 30 }).v, found_location: str(req.body.found_location, { max: 120 }).v, public_description: str(req.body.public_description, { max: 800 }).v, secret_feature: secret.v, status: 'available', created_at: now() });
+  const photos = await storePhotos(req.body.photos);
+  data.items.push({ id, pickup_code: code, name: nm.v, category: str(req.body.category, { max: 40 }).v, storage_location: str(req.body.storage_location, { max: 120 }).v, found_date: str(req.body.found_date, { max: 30 }).v, found_location: str(req.body.found_location, { max: 120 }).v, public_description: str(req.body.public_description, { max: 800 }).v, secret_feature: secret.v, photos, status: 'available', created_at: now() });
   audit('add_item', `${nm.v} (${code})`);
   await save();
   res.json({ ok: true, id, pickup_code: code });
@@ -150,6 +184,7 @@ app.delete('/api/items/:id', auth, async (req, res) => {
   if (idx < 0) return res.status(404).json({ error: '物品不存在' });
   const [it] = data.items.splice(idx, 1);
   data.claims = data.claims.filter(c => c.item_id !== it.id);
+  await deleteMedia(it.photos);
   audit('delete_item', it.name);
   await save();
   res.json({ ok: true });
@@ -181,6 +216,24 @@ app.patch('/api/staff/reports/:id', auth, async (req, res) => {
   r.done = req.body.done ? 1 : 0;
   await save();
   res.json({ ok: true });
+});
+
+/* ========== 备份：导出 / 导入（含照片） ========== */
+app.get('/api/staff/export', auth, async (req, res) => {
+  const media = await sql`SELECT id, b64 FROM media`;
+  res.json({ app: 'laf', version: 2, exportedAt: now(), data, media });
+});
+app.post('/api/staff/import', auth, async (req, res) => {
+  const body = req.body || {};
+  if (!body.data || !Array.isArray(body.data.items)) return res.status(400).json({ error: '不是有效的备份文件' });
+  data = {
+    items: body.data.items || [], claims: body.data.claims || [], reports: body.data.reports || [],
+    audit: body.data.audit || [], seq: body.data.seq || { audit: 0 },
+  };
+  await sql`DELETE FROM media`;
+  if (Array.isArray(body.media)) for (const m of body.media) { if (m && m.id && m.b64) { try { await sql`INSERT INTO media (id, b64) VALUES (${m.id}, ${m.b64})`; } catch (e) {} } }
+  await save();
+  res.json({ ok: true, items: data.items.length });
 });
 
 /* ---------- 前端页面（仅返回 index.html，不暴露源码） ---------- */
